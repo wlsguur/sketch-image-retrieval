@@ -14,18 +14,3 @@ inference:
   sketch_path: sketches/COCO_val2014_000000163852.jpg
   caption: "a plate of food with a fork and knife"
   save_result_path: retrieval_result.jpg
-
-train:
-  batch_size: 64
-  num_workers: 4
-  dataset:
-    name: sketchy
-    sketch_folder: data/sketches/
-    image_folder: data/photos/
-    annotation_file: data/annotations/train.json
-  epochs: 100
-  learning_rate: 1e-4
-  temperature: 0.07
-  optimizer: adam
-  save_every: 10
-  save_path: checkpoints/
