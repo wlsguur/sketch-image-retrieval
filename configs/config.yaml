@@ -8,7 +8,8 @@ top_k: 5
 encoding:
   batch_size: 32
   num_workers: 0
-  image_dir: images/
+  image_dir: ../ikea_database/ikea_images/main
+  data_root_dir: ../ikea_database
 
 inference:
   sketch_path: sketches/COCO_val2014_000000163852.jpg

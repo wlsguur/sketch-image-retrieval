@@ -5,18 +5,19 @@ CODE_PATH = Path('./codes/')
 sys.path.append(str(CODE_PATH))
 
 from flask import Flask, request, jsonify, render_template
-import base64, io, uuid, os
+import base64, io, uuid, os, json
 from PIL import Image
-import torch, yaml, json
 
-from model.pipeline import Pipeline
-from clip.model import CLIP
-from clip.clip import _transform, tokenize
+import torch, yaml
+from codes.model.pipeline import Pipeline
+from codes.clip.model import CLIP
+from codes.clip.clip import _transform, tokenize
 
 cfg_path = 'configs/config.yaml'
 config = yaml.safe_load(open(cfg_path))
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
+# Load model
 with open(config["model_config"]) as f:
     info = json.load(f)
 
@@ -31,10 +32,16 @@ transform = _transform(model.visual.input_resolution, is_train=False)
 pipeline = Pipeline(config, model, transform, tokenize, device)
 
 # DB indexing
-img_dir = config["encoding"]["image_dir"]
+data_root_dir = config["encoding"]["data_root_dir"]
+img_dir = f"{data_root_dir}/ikea_images/main"
 img_paths = sorted(str(p) for p in Path(img_dir).glob("*") if p.suffix.lower() in [".jpg", ".png"])
 pipeline.index_database(img_paths)
 
+# IKEA metadata loading
+with open(f"{data_root_dir}/ikea_product_info.json", encoding="utf-8") as f:
+    ikea_info = json.load(f)
+
+# Flask
 app = Flask(__name__, static_folder='static', template_folder='templates')
 UPLOAD_DIR = Path('uploads')
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -53,22 +60,37 @@ def infer():
     data = request.get_json()
     sketch_b64 = data['sketch'].split(',')[1]
     caption = data.get('caption', '')
-    print("caption from client:", caption)
 
+    # Decode image
     im = Image.open(io.BytesIO(base64.b64decode(sketch_b64))).convert('RGB')
     tmp_name = UPLOAD_DIR / f"{uuid.uuid4().hex}.png"
     im.save(tmp_name)
 
+    # retrieval
     result_paths = pipeline.run_retrieval(str(tmp_name), caption)
 
-    result_b64_list = []
-    for p in result_paths:
-        with open(p, "rb") as f:
+    results = []
+    for path in result_paths:
+        with open(path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
-            result_b64_list.append("data:image/jpeg;base64," + b64)
+        image_b64 = "data:image/jpeg;base64," + b64
+
+        # key extraction : filename -> 'sofa-10489009-0.png' -> 'sofa-10489009'
+        key = "-".join(Path(path).stem.split("-")[:-1])
+        meta = ikea_info.get(key, {})
+
+        results.append({
+            "image": image_b64,
+            "name": meta.get("name", "Unknown"),
+            "description": meta.get("description", ""),
+            "price": meta.get("price", "-"),
+            "rating": meta.get("rating", "-"),
+            "num_reviews": meta.get("num_reviews", "-"),
+            "link": meta.get("link", "#")
+        })
 
     tmp_name.unlink(missing_ok=True)
-    return jsonify({"results": result_b64_list})
+    return jsonify({"results": results})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5050)
